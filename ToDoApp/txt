@@ -1,0 +1,7 @@
+<div class="task">
+    <p class="task-name">Go to work</p>
+    <div class="task-div">
+        <p class="task-time">04.12.2024</p>
+        <button onclick="removeDiv(this)" class="task-cancel"><img class="task-image" src="bxs-message-square-x.svg" alt=""></button>
+    </div>
+/div>
