@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <link rel="stylesheet" href="styles.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamically load IP address for EC2 in Ansible Inventory</title>
+</head>
+<body>
+    <div class="menubar">
+        <img src="images/bx-code-alt.svg" alt="logo">
+        <div class="links">
+            <a href="">Home</a>
+            <a href="">Explore</a>
+        </div>
+        
+    </div>
+    <div class="subjects">
+        <a href=""><h2>Ansible</h2></a>
+        <a href=""><h2>AWS Web Services</h2></a>
+        <a href=""><h2>DevOps</h2></a>
+    </div>
+    <header>
+        <h1>Load IP addresses for EC2 in Ansible Inventory</h1>
+        <p class="information">September 6, 2023</p>
+    </header>
+    <!--introduction-->
+    <section>
+        <p>Ansible is a great tool for automating infrastructure provisioning. It is agentless, which means that you don’t need to install anything on the target machine. It is also very easy to use and has a lot of modules that you can use to automate your infrastructure.</p>
+        <p>Ansible inventory is a file that contains a list of hosts that Ansible can connect to. It is used to define the hosts that Ansible will connect to and the run the tasks on. This file can be either static i.e. you define the hosts manually or dynamic i.e. you define the hosts using a script. Given below is an example of a static inventory file.</p>
+        <p>As you can see, we have two groups <code>[web]</code> and <code>[db]</code> with each group having some IP addresses. The problem with this approach is that if you have a lot of hosts, then it becomes very difficult to manage the inventory file. Also, if you have a dynamic infrastructure where hosts are added and removed frequently, then it becomes even more difficult to manage the inventory file.</p>
+        <div class="code-section">
+<pre>
+<code>
+[web]
+16.202.152.100
+14.201.142.105
+
+[db]
+15.212.122.120
+</code>
+</pre>
+        </div>
+        <p>In this article, we will learn how to dynamically populate the Ansible inventory with the IP address of EC2 instances.</p>
+    </section>
+    <section>
+        <h2>Tagging EC2 instances</h2>
+        <p>The first step to make it easier to manage the inventory file is to tag the EC2 instances properly. I normally tag the EC2 instances with the following tags at the very least:</p>
+        <div class="code-section">
+<pre>
+<code>
+Project     = "web-address.com"
+Component   = "{COMPONENT}"
+Role        = "{ROLE}"
+Name        = "{COMPONENT}-{ROLE}-{ENVIROMENT}"
+Environment = "{ENVIRONMENT}"
+ManagedBy   = "{MANAGED_BY}"
+</code>
+</pre>    
+        </div>
+        <p>Details of what each tag means:</p>
+        <ul>
+            <li><strong>Component</strong>: Name of the component if application consists of several different components e.g. <code>newsletter</code>, <code>blog</code>, <code>app</code>, etc.</li>
+            <li><strong>Role</strong>: Role of the EC2 instance e.g. <code>api</code> (backend API), <code>web</code> (customer facing app), <code>db</code> (database server), etc.</li>
+            <li><strong>Environment</strong>: Environment of the EC2 instance e.g. <code>production</code>, <code>staging</code>, <code>development</code>, etc.</li>
+            <li><strong>ManagedBy</strong>: How the EC2 instance is managed e.g. <code>terraform</code>, <code>ansible</code>, <code>manual</code>, etc.</li>
+            <li><strong>Name</strong>: This is the name of the EC2 instance. I normally use the following format: <code>{COMPONENT}-{ROLE}-{ENVIROMENT}</code> e.g. <code>app-api-production</code>, <code>newsletter-db-production</code>, <code>blog-web-staging</code>, etc.</li>
+        </ul>
+        <p>Having these tags not only makes it easier to manage the inventory file but also makes it easier to manage the EC2 instances themselves e.g. you can easily find all the resources with specific tags, better analyse the cost of the infrastructure, etc.</p>
+    </section>
+    <section>
+        <h2>Dynamic Inventory</h2>
+        <p>There is an Ansible module called <code>aws_ec2</code> that can be used to dynamically populate the inventory file with the IP address of EC2 instances. It can get the IP address of EC2 instances based on the tags that we have defined above and give us hostnames that we can use in our playbooks. It has a pretty decent documentation that you can refer to to get an idea of usage but I will go through the usage here:</p>
+        <p>First, we need to create a yaml file that will contain the configuration for the <code>aws_ec2</code> module. The filename must end with <code>aws_ec2.yml</code>, e.g. <code>csfyi.aws_ec2.yml</code>. The contents of the file should be as follows:</p>
+        <div class="code-section">
+<pre>
+<code>
+plugin: aws_ec2
+boto_profile: "{{ lookup('env', 'AWS_PROFILE') }}"
+regions:
+- ap-south-1
+filters:
+instance-state-name: running
+keyed_groups:
+- key: tags.get('Component', 'unknown') + "_" + tags.get('Role', 'unknown') + "_" + tags.get('Environment', 'unknown')
+separator: ''
+- key: tags.get('Component', 'unknown') + "_" + tags.get('Role', 'unknown')
+separator: ''
+</code>
+</pre>
+        </div>
+        <p>Let’s go through the configuration one by one:</p>
+        <ul>
+            <li><strong>plugin</strong>: This is the name of the plugin that we are using. In our case, it is <code>aws_ec2</code>.</li>
+            <li><strong>boto_profile</strong>: This is the name of the <code>AWS profile</code> that we are using. We are using the value of the AWS_PROFILE environment variable here. This is useful if you have multiple AWS profiles configured on your machine.</li>
+            <li><strong>regions</strong>: This is the list of regions that we want to query for EC2 instances. In our case, we are only querying the <code>ap-south-1</code> region.</li>
+            <li><strong>filters</strong>: This is the list of filters that we want to apply to get the EC2 instances in our inventory. In our case, we are only querying the running instances.</li>
+            <li><strong>keyed_groups</strong>: This is where we are preparing the list of groups that we want to create in our inventory. The names of the groups are generated using the tags of the EC2 instances. We are creating two groups but you can add as many as you want
+                <ul>
+                    <li><code>{COMPONENT}_{ROLE}_{ENVIRONMENT}</code> e.g. <code>app_api_production</code>, <code>newsletter_db_production</code>, <code>blog_web_staging</code>, etc. This gives us the ability to run the playbooks on specific EC2 instances in a specific environment.</li>
+                    <li><code>{COMPONENT}_{ROLE}</code>: e.g. <code>app_api</code>, <code>newsletter_db</code>, <code>blog_web</code>, etc. This gives us the ability to run the playbooks on specific EC2 instances regardless of the environment.</li>
+                </ul>
+            </li>
+        </ul>
+        <p>Once we have created the configuration file, we can use the <code>aws_ec2</code> module to get the list of EC2 instances. We can do this by running the following command:</p>
+        <div class="code-section">
+<pre>
+<code>
+# Use --list or --graph to get the list of EC2 instances
+ansible-inventory -i csfyi.aws_ec2.yml --list
+ ansible-inventory -i csfyi.aws_ec2.yml --graph
+
+# Add AWS_PROFILE if you are using multiple profiles in your machine
+AWS_PROFILE=csfyi ansible-inventory -i csfyi.aws_ec2.yml --list
+
+# You can also use the following command to get the list of EC2 instances in a specific group
+ansible-inventory -i csfyi.aws_ec2.yml --host ap p_api_production
+</code>
+</pre>
+        </div>
+        <p>If all goes well, you should see the list of EC2 instances in the output. Now that we have the inventory file ready, we can use it in the <code>ansible.cfg</code> file. You should add the following lines to the <code>ansible.cfg</code> file:</p>
+        <div class="code-section">
+<pre>
+<code>
+[defaults]
+# ...
+enable_plugins = aws_ec2
+inventory = ./roadmap.aws_ec2.yml
+# ...
+</code>
+</pre>
+        </div>
+        <p>Now, you can use the host names in your playbooks. For example, if you want to run a playbook on all the EC2 instances in the <code>app_api_production</code> group, then you can do the following:</p>
+        <div class="code-section">
+<pre>
+<code>
+- name: Configure draw.roadmap.sh
+hosts: app_api_production  # Name generated by the aws_ec2 plugin
+become: yes
+become_method: sudo
+gather_facts: no
+roles:
+- { role: base, tags: [ 'base' ] }
+- { role: nginx, tags: [ 'nginx' ] }
+</code>
+</pre>
+        </div>
+    </section>
+    <section>
+        <h2>Conclusion</h2>
+        <p>In this article, we learned how to dynamically populate the Ansible inventory with the IP address of EC2 instances. This makes it easier to manage the inventory file and also makes it easier to manage the EC2 instances themselves. I hope you found this article useful.</p>
+    </section>
+    <p style="text-align: center;margin-top:25px;" class="information">© All rights reserved — cs.fyi</p>
+</body>
+</html>
